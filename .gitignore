@@ -1,0 +1,15 @@
+# Build artifacts
+jmp
+dist/
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test coverage
+coverage.out
