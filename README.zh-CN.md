@@ -28,8 +28,6 @@
 - 📥 **导入** —— 从文本文件或常见历史文件导入路径。
 - 🧰 **维护工具** —— `doctor`、`clean`、`stats`、JSON 输出等。
 
-<!-- TUI 截图占位。请把截图放到 docs/images/tui-main.png（在 80x24 以上的
-     终端里运行 `jmp tui`，然后截图）。图片放进去后即可在此处显示。 -->
 <p align="center">
   <img src="./docs/images/tui-main.png" alt="jmp TUI 管理界面" width="720">
 </p>

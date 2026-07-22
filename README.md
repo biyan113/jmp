@@ -29,9 +29,6 @@ macOS / Linux / WSL / Windows.
 - 📥 **Import** — ingest paths from a text file or common history files.
 - 🧰 **Maintenance** — `doctor`, `clean`, `stats`, JSON output, and more.
 
-<!-- TUI screenshot placeholder. Drop your screenshot at docs/images/tui-main.png
-     (run `jmp tui` in an 80x24+ terminal, then screenshot). Until the image
-     exists, GitHub renders the broken-image icon; once added it shows inline. -->
 <p align="center">
   <img src="./docs/images/tui-main.png" alt="jmp TUI manager" width="720">
 </p>
