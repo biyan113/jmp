@@ -399,7 +399,8 @@ func fuzzyMatchComponent(target, pattern string) bool {
 	return false
 }
 
-// splitComponents returns the lowercase path components, filtering empty strings.
+// splitComponents splits path into its components on the OS path separators,
+// filtering out empty strings. The caller is responsible for lowercasing.
 func splitComponents(path string) []string {
 	parts := strings.FieldsFunc(path, func(r rune) bool {
 		return r == '/' || r == '\\'

@@ -163,10 +163,15 @@ func buildSyncPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tmp := filepath.Join(os.TempDir(), fmt.Sprintf("jmp_pull_%d.json", time.Now().UnixMilli()))
-			defer os.Remove(tmp)
+			tmp, err := os.CreateTemp("", "jmp_pull_*.json")
+			if err != nil {
+				return fmt.Errorf("创建临时文件失败: %w", err)
+			}
+			tmpName := tmp.Name()
+			tmp.Close()
+			defer os.Remove(tmpName)
 
-			c := exec.Command("scp", "-q", cfg.Remote, tmp)
+			c := exec.Command("scp", "-q", cfg.Remote, tmpName)
 			out, err := c.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("scp 拉取失败: %s", out)
@@ -176,7 +181,7 @@ func buildSyncPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			remote, err := store.Load(tmp)
+			remote, err := store.Load(tmpName)
 			if err != nil {
 				return err
 			}
@@ -252,20 +257,41 @@ func runSyncNow() error {
 	if err != nil {
 		return err
 	}
-	// Pull first
-	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("jmp_pull_%d.json", time.Now().UnixMilli()))
-	c := exec.Command("scp", "-q", cfg.Remote, tmp)
-	if _, err := c.CombinedOutput(); err == nil {
-		local, _ := store.Load(dbPath)
-		remote, _ := store.Load(tmp)
-		if local != nil && remote != nil {
-			local.MergeFrom(remote)
-			local.Save()
-		}
-		os.Remove(tmp)
+	// Pull first: if the pull or merge fails, abort BEFORE pushing so we never
+	// overwrite the remote with a stale/empty local copy.
+	tmp, err := os.CreateTemp("", "jmp_pull_*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
 	}
-	// Then push merged result
-	c = exec.Command("scp", "-q", dbPath, cfg.Remote)
+	tmpName := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpName)
+
+	if c := exec.Command("scp", "-q", cfg.Remote, tmpName); c.Run() == nil {
+		local, errL := store.Load(dbPath)
+		remote, errR := store.Load(tmpName)
+		if errL != nil {
+			return fmt.Errorf("加载本地数据库失败: %w", errL)
+		}
+		if errR != nil {
+			return fmt.Errorf("加载远程数据库失败: %w", errR)
+		}
+		local.MergeFrom(remote)
+		if err := local.Save(); err != nil {
+			return fmt.Errorf("保存合并结果失败: %w", err)
+		}
+	} else {
+		// Pull failed (remote unreachable / first sync). That's acceptable, but
+		// we still push local state so the remote gets seeded. A load error
+		// below will abort as above.
+		local, errL := store.Load(dbPath)
+		if errL != nil {
+			return fmt.Errorf("加载本地数据库失败: %w", errL)
+		}
+		_ = local // local load is only a sanity check here before the push
+	}
+	// Push merged result
+	c := exec.Command("scp", "-q", dbPath, cfg.Remote)
 	if out, err := c.CombinedOutput(); err != nil {
 		return fmt.Errorf("scp push 失败: %s", out)
 	}

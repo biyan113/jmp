@@ -24,6 +24,10 @@ var (
 	skipPath string
 )
 
+// version is injected at build time via -ldflags "-X main.version=...".
+// Defaults to "dev" for `go run` / untagged builds.
+var version = "dev"
+
 func main() {
 	root := buildRoot()
 	if err := root.Execute(); err != nil {
@@ -81,6 +85,7 @@ Shell 集成：
 		buildImportCmd(),
 		buildCompleteCmd(),
 		buildSuggestCmd(),
+		buildVersionCmd(),
 	)
 
 	return root
@@ -336,7 +341,7 @@ func runTUI() error {
 	if err != nil {
 		return err
 	}
-	selected, err := tui.Run(s, dbPath, cfg.Color)
+	selected, err := tui.Run(s, dbPath, cfg.Color, version)
 	if err != nil {
 		return err
 	}
@@ -671,6 +676,23 @@ func buildSuggestCmd() *cobra.Command {
 	}
 }
 
+// ---- version ----
+
+func buildVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the jmp version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if jsonOut {
+				printJSON(map[string]any{"version": version})
+				return nil
+			}
+			fmt.Println("jmp", version)
+			return nil
+		},
+	}
+}
+
 // ---- stats ----
 
 func buildStatsCmd() *cobra.Command {
@@ -764,6 +786,22 @@ func expandPath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
+// isAbsish reports whether s looks like an absolute or home-relative path
+// on the current platform: "~/" anywhere, unix "/", or a Windows drive
+// like "C:\" / "C:/". This keeps `jmp import` portable across OSes.
+func isAbsish(s string) bool {
+	if strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "/") || s == "~" {
+		return true
+	}
+	// Windows drive letter: C:\ or C:/
+	if len(s) >= 3 && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
+		if c := s[0]; (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return true
+		}
+	}
+	return false
+}
+
 func extractPaths(line string) []string {
 	fields := strings.Fields(line)
 	out := make([]string, 0, len(fields))
@@ -772,7 +810,7 @@ func extractPaths(line string) []string {
 		if strings.HasPrefix(f, "path:") {
 			f = strings.TrimPrefix(f, "path:")
 		}
-		if strings.HasPrefix(f, "~/") || strings.HasPrefix(f, "/") {
+		if isAbsish(f) {
 			if path, err := expandPath(f); err == nil {
 				out = append(out, path)
 			}
@@ -780,7 +818,7 @@ func extractPaths(line string) []string {
 	}
 	if len(out) == 0 && len(fields) >= 2 {
 		candidate := strings.Trim(fields[len(fields)-1], "\"'();")
-		if strings.HasPrefix(candidate, "~/") || strings.HasPrefix(candidate, "/") {
+		if isAbsish(candidate) {
 			if path, err := expandPath(candidate); err == nil {
 				out = append(out, path)
 			}

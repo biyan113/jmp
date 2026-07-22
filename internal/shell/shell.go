@@ -54,9 +54,20 @@ j() {
         JMP_FWD=""
         cd "$result"
     elif [ $# -gt 0 ]; then
-        echo "jmp: no match for: $*" >&2
-        %s suggest "$@" 2>/dev/null | sed 's/^/  /' >&2
-        return 1
+        # jmp DB miss: fall back to treating the args as a directory path
+        # (supports ~ expansion, absolute paths, and relative names).
+        local _dir
+        if [ $# -eq 1 ]; then _dir="$1"; else _dir="$*"; fi
+        _dir="${_dir/#\~/$HOME}"
+        if [ -d "$_dir" ]; then
+            JMP_BACK="$(pwd)"
+            JMP_FWD=""
+            cd "$_dir"
+        else
+            echo "jmp: no match for: $*" >&2
+            %s suggest "$@" 2>/dev/null | sed 's/^/  /' >&2
+            return 1
+        fi
     fi
 }
 
@@ -111,9 +122,20 @@ j() {
         JMP_FWD=""
         cd "$result"
     elif [ $# -gt 0 ]; then
-        echo "jmp: no match for: $*" >&2
-        %s suggest "$@" 2>/dev/null | sed 's/^/  /' >&2
-        return 1
+        # jmp DB miss: fall back to treating the args as a directory path
+        # (supports ~ expansion, absolute paths, and relative names).
+        local _dir
+        if [ $# -eq 1 ]; then _dir="$1"; else _dir="$*"; fi
+        _dir="${_dir/#\~/$HOME}"
+        if [ -d "$_dir" ]; then
+            JMP_BACK="$(pwd)"
+            JMP_FWD=""
+            cd "$_dir"
+        else
+            echo "jmp: no match for: $*" >&2
+            %s suggest "$@" 2>/dev/null | sed 's/^/  /' >&2
+            return 1
+        fi
     fi
 }
 
@@ -168,9 +190,21 @@ function j
         set -gx JMP_FWD ""
         cd $result
     else if test (count $argv) -gt 0
-        echo "jmp: no match for: $argv" >&2
-        %s suggest $argv 2>/dev/null | sed 's/^/  /' >&2
-        return 1
+        # jmp DB miss: fall back to treating args as a directory path.
+        if test (count $argv) -eq 1
+            set _dir (string replace -r '^~' $HOME -- $argv[1])
+        else
+            set _dir (string replace -r '^~' $HOME -- "$argv")
+        end
+        if test -d "$_dir"
+            set -gx JMP_BACK (pwd)
+            set -gx JMP_FWD ""
+            cd $_dir
+        else
+            echo "jmp: no match for: $argv" >&2
+            %s suggest $argv 2>/dev/null | sed 's/^/  /' >&2
+            return 1
+        end
     end
 end
 
@@ -209,8 +243,15 @@ function global:j {
         $global:_jmpLastDir = (Get-Location).Path
         Set-Location $result
     } elseif ($Query.Count -gt 0) {
-        Write-Error "jmp: no match for: $($Query -join ' ')"
-        & '%s' suggest @Query 2>$null | ForEach-Object { Write-Error "  $_" }
+        # jmp DB miss: fall back to treating args as a directory path.
+        $dir = ($Query -join ' ') -replace '^~', $HOME
+        if (Test-Path $dir -PathType Container) {
+            $global:_jmpLastDir = (Get-Location).Path
+            Set-Location $dir
+        } else {
+            Write-Error "jmp: no match for: $($Query -join ' ')"
+            & '%s' suggest @Query 2>$null | ForEach-Object { Write-Error "  $_" }
+        }
     }
 }
 

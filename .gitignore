@@ -1,15 +1,31 @@
 # Build artifacts
-jmp
-dist/
+/jmp
+/dist/
+*.exe
+*.test
+*.out
+
+# Coverage / profiling
+coverage.out
+coverage.*
+*.prof
 
 # OS files
 .DS_Store
+Thumbs.db
 
-# IDE
+# IDE / editors
 .idea/
 .vscode/
+.cursor/
+.zed/
 *.swp
 *.swo
+*~
 
-# Test coverage
-coverage.out
+# Local databases & shell-specific config (do not commit machine state)
+# (the default DB lives under the platform data dir, but a local one may be
+# created when testing with --db)
+db.json
+config.json
+sync.json

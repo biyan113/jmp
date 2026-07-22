@@ -1,127 +1,211 @@
 # jmp
 
-智能目录跳转工具 — autojump 的 Go 重写增强版。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-使用 frecency 算法（频率 + 时效衰减）排序，跨平台支持 macOS / Linux / WSL / Windows。
+**jmp** is a smart directory jumper — a Go rewrite and enhancement of
+[autojump](https://github.com/wting/autojump). It learns the directories you
+`cd` into and lets you jump back to them with a few keystrokes.
 
-## 安装
+Ranking uses a **frecency** algorithm (frequency + time decay), with substring
+matching preferred over fuzzy matching. It is cross-platform:
+macOS / Linux / WSL / Windows.
+
+---
+
+## Features
+
+- 🚀 **One-key jump** — `j foo` jumps to the most-used directory matching `foo`.
+- 🧠 **Frecency ranking** — combines visit frequency with a 7-day half-life
+  recency decay, so recently and frequently used dirs win.
+- 🔍 **Substring + fuzzy matching** — exact substring hits always rank above
+  fuzzy matches; multi-keyword queries narrow results.
+- 🏷️ **Aliases** — `jmp alias set proj /code/project`, then `j @proj`.
+- 🖥️ **TUI manager** — interactive viewer (Bubble Tea) to search, star,
+  categorize, edit weights, and delete entries.
+- 🐚 **Shell integration** — bash, zsh, fish, and PowerShell, with tab
+  completion and `back` / `fwd` / `-` navigation history.
+- 🔄 **Multi-device sync** — sync the database across machines over SSH/SCP
+  (pull → merge → push), with a configurable interval.
+- 📥 **Import** — ingest paths from a text file or common history files.
+- 🧰 **Maintenance** — `doctor`, `clean`, `stats`, JSON output, and more.
+
+<!-- TUI screenshot placeholder. Drop your screenshot at docs/images/tui-main.png
+     (run `jmp tui` in an 80x24+ terminal, then screenshot). Until the image
+     exists, GitHub renders the broken-image icon; once added it shows inline. -->
+<p align="center">
+  <img src="./docs/images/tui-main.png" alt="jmp TUI manager" width="720">
+</p>
+
+## Installation
 
 ```bash
-# 从源码构建
+# Option 1: go install (needs Go 1.21+)
+go install github.com/bytenote/jmp@latest
+
+# Option 2: build from source
 make build
-make install   # 安装到 /usr/local/bin/jmp
+make install   # installs to /usr/local/bin/jmp
+
+# Option 3: download a prebuilt binary from Releases
+# https://github.com/biyan113/jmp/releases
 ```
 
-## Shell 集成
+Requires Go 1.21+ (uses the builtin `min`/`max`).
 
-将以下内容添加到对应 shell 的配置文件中：
+## Shell Integration
+
+Add the matching line to your shell config, then restart the shell. After that
+the `j` command is available.
 
 ```bash
-# bash (~/.bashrc)
+# bash  (~/.bashrc)
 eval "$(jmp init bash)"
 
-# zsh (~/.zshrc)
+# zsh   (~/.zshrc)
 eval "$(jmp init zsh)"
 
-# fish (~/.config/fish/config.fish)
+# fish  (~/.config/fish/config.fish)
 jmp init fish | source
 
-# PowerShell ($PROFILE)
+# PowerShell  ($PROFILE)
 Invoke-Expression (& jmp init powershell | Out-String)
 ```
 
-集成后即可使用 `j` 命令快速跳转。
+The integration auto-records every directory you enter and runs background sync
+(if configured).
 
-## 使用方法
+## Usage
 
-### 基本跳转
-
-```bash
-j foo          # 跳转到最匹配 "foo" 的目录
-j foo bar      # 多关键词匹配
-j @proj        # 通过别名跳转
-j              # 打开 TUI 管理界面
-```
-
-### 路径管理
+### Jumping
 
 ```bash
-jmp add /path/to/dir          # 手动添加路径
-jmp add /path/to/dir -w 10    # 指定初始权重
-jmp remove /path/to/dir       # 删除路径记录（别名: rm, del）
-jmp list                      # 列出所有路径
-jmp list -n 20                # 最多显示 20 条
-jmp list -q keyword           # 按关键词过滤
+j foo          # jump to the best match for "foo"
+j foo bar      # multiple keywords (all must match)
+j @proj        # jump via alias
+j              # open the TUI manager
+j -            # previous directory
+j back         # jump back   (requires JMP_BACK, set by integration)
+j fwd          # jump forward (requires JMP_FWD)
+j /etc         # absolute path
+j ~/Documents  # home-relative path
+j src          # relative subdir (when there's no DB match)
 ```
 
-### 别名管理
+**`j` also acts like `cd`**: it first queries the jmp database; on a miss it
+falls back to treating the arguments as a directory path (supports `~`,
+absolute paths, and relative names). So `j src` jumps to a known project when
+one exists, otherwise it enters the `src` subdir. Any directory you `cd` into
+this way is recorded by the shell hook, so it becomes a future `j` target.
+
+### Path management
 
 ```bash
-jmp alias                     # 列出所有别名
-jmp alias set proj /path      # 设置别名
-jmp alias remove proj         # 删除别名
-j @proj                       # 使用别名跳转
+jmp add /path/to/dir          # add a path manually
+jmp add /path/to/dir -w 10    # with an initial weight
+jmp remove /path/to/dir       # remove a record (aliases: rm, del)
+jmp list                      # list all entries
+jmp list -n 20                # limit to 20
+jmp list -q keyword           # filter by keyword
 ```
 
-### TUI 界面
+### Aliases
 
 ```bash
-jmp tui       # 打开交互式管理界面
-jmp --tui     # 同上
+jmp alias                     # list all aliases
+jmp alias set proj /path      # create an alias
+jmp alias remove proj         # remove an alias (aliases: rm, del)
+j @proj                       # jump using the alias
 ```
 
-### 数据维护
+### TUI manager
 
 ```bash
-jmp stats                     # 显示数据库统计
-jmp doctor                    # 检查数据库健康状态
-jmp clean                     # 删除不存在的路径和失效别名
-jmp clean --dry-run           # 预览将删除的记录
+jmp tui       # open the interactive manager
+jmp --tui     # same as above
 ```
 
-### 数据导入
+Key bindings: `↑/↓` move · `enter` jump · `/` search · `space` mark ·
+`s` star · `c` category · `e` edit weight · `d` delete · `a` add ·
+`1/2/3/4` filter (all/recent/starred/categorized) · `i` detail ·
+`p` preview · `?` help · `q` quit.
+
+### Maintenance
 
 ```bash
-jmp import ~/path_history.txt   # 从文本文件导入路径
+jmp stats                     # database statistics
+jmp doctor                    # health check (missing paths, broken aliases)
+jmp clean                     # remove missing paths and broken aliases
+jmp clean --dry-run           # preview what would be removed
 ```
 
-### 多设备同步
-
-通过 SSH/SCP 跨设备同步数据库，合并策略为权重取最大值、访问次数取最大值、时间取最新。
+### Import
 
 ```bash
-jmp sync set user@host:~/.local/share/jmp/db.json        # 配置远程路径
-jmp sync set user@host:~/.local/share/jmp/db.json 600    # 设置同步间隔（秒）
-jmp sync                # 立即同步（pull + merge + push）
-jmp sync push           # 仅推送
-jmp sync pull           # 仅拉取并合并
-jmp sync auto           # 自动同步（超过间隔才执行，供 shell hook 调用）
-jmp sync status         # 查看同步状态
+jmp import ~/path_history.txt   # import paths from a text/history file
 ```
 
-### 配置
+### Multi-device sync
+
+Sync the database over SSH/SCP. Merge strategy: **weight = max, visits = max,
+last-visit = latest**. Once configured, the shell hook syncs in the background
+(subject to the interval).
 
 ```bash
-jmp config                                  # 查看当前配置
-jmp config color <auto|always|never|ansi256|truecolor>   # 设置颜色模式
+jmp sync set user@host:~/.local/share/jmp/db.json        # configure remote
+jmp sync set user@host:~/.local/share/jmp/db.json 600    # with interval (seconds)
+jmp sync                # sync now (pull + merge + push)
+jmp sync push           # push only
+jmp sync pull           # pull and merge only
+jmp sync auto           # sync only if interval elapsed (called by shell hook)
+jmp sync status         # show config and last sync time
 ```
 
-### 全局选项
+> Requires passwordless SSH/SCP access (e.g. key-based auth) to the remote host.
 
-| 选项 | 说明 |
-|------|------|
-| `--db <path>` | 指定数据库文件路径 |
-| `--json` | 以 JSON 格式输出 |
-
-## 开发
+### Configuration
 
 ```bash
-make build      # 构建本地二进制
-make test       # 运行测试
-make lint       # 静态检查
-make build-all  # 交叉编译所有平台
-make clean      # 清理构建产物
+jmp config                                  # show current config
+jmp config color <auto|always|never|ansi256|truecolor>   # set TUI color mode
 ```
+
+### Global options
+
+| Option | Description |
+|--------|-------------|
+| `--db <path>` | Use a custom database file path |
+| `--json`     | Output in JSON |
+
+```bash
+jmp version    # print the build version
+```
+
+## Development
+
+```bash
+make build      # build the local binary
+make test       # run tests
+make lint       # go vet
+make build-all  # cross-compile all platforms into dist/
+make clean      # remove build artifacts
+```
+
+## How Ranking Works
+
+Each entry has a frecency score:
+
+```
+frecency = weight × 0.5 ^ (hours_since_last_visit / 168)
+```
+
+A 7-day half-life means a dir visited a week ago is worth half as much as one
+visited now. When the total weight across all entries exceeds 9000, every
+weight is scaled by 0.9 (autojump-style aging) to prevent unbounded growth.
+
+On top of frecency, `matcher.Rank` applies bonuses/penalties: last path
+component exact match (×3), prefix match (×1.5), starred (×1.25), alias match
+(×2), current-directory proximity (×1.2), and non-existent path (×0.1).
+Substring matches always outrank fuzzy matches.
 
 ## License
 

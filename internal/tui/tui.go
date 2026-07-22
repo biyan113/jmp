@@ -137,6 +137,7 @@ const (
 type Model struct {
 	st          *store.Store
 	dbPath      string
+	version     string
 	entries     []*store.Entry
 	cursor      int
 	mode        mode
@@ -155,7 +156,7 @@ type Model struct {
 	marked      map[string]bool
 }
 
-func New(s *store.Store, dbPath string) *Model {
+func New(s *store.Store, dbPath, ver string) *Model {
 	ti := textinput.New()
 	ti.CharLimit = 512
 	ti.Width = 60
@@ -163,9 +164,10 @@ func New(s *store.Store, dbPath string) *Model {
 	ti.TextStyle = normalStyle
 
 	m := &Model{
-		st:     s,
-		dbPath: dbPath,
-		marked: make(map[string]bool),
+		st:      s,
+		dbPath:  dbPath,
+		version: ver,
+		marked:  make(map[string]bool),
 	}
 	m.input = ti
 	m.reload()
@@ -544,7 +546,7 @@ func (m *Model) View() string {
 
 	// Title line
 	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(cyan).Render(" JMP ") + " ")
-	sb.WriteString(dimStyle.Render("path jumper v1.0"))
+	sb.WriteString(dimStyle.Render("path jumper " + m.version))
 
 	// Filter tabs
 	filters := []struct {
@@ -847,7 +849,7 @@ func (m *Model) clearStatus() {
 }
 
 // Run launches the TUI. Returns the selected path, or empty string if quit.
-func Run(s *store.Store, dbPath, colorMode string) (string, error) {
+func Run(s *store.Store, dbPath, colorMode, ver string) (string, error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		tty = os.Stderr
@@ -858,31 +860,10 @@ func Run(s *store.Store, dbPath, colorMode string) (string, error) {
 	applyColorMode(renderer, colorMode)
 	lipgloss.SetDefaultRenderer(renderer)
 	setStyleRenderer(renderer)
-	m := New(s, dbPath)
+	m := New(s, dbPath, ver)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithInput(tty), tea.WithOutput(tty))
 	_, err = p.Run()
 	return m.selected, err
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return "…" + s[len(s)-n+1:]
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func applyColorMode(r *lipgloss.Renderer, mode string) {
