@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-25
+
 ### Added
+- Homebrew installation: `brew install biyan113/tap/jmp` (macOS / Linux).
+  GoReleaser now publishes a Formula to
+  [biyan113/homebrew-tap](https://github.com/biyan113/homebrew-tap).
 - `j` now acts as `cd` on a database miss: it first queries the jmp DB, and on
   no match falls back to treating the argument as a directory path (`~`
   expansion, absolute paths, and relative names all work). Works across bash,
@@ -44,5 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maintenance commands: `doctor`, `clean`, `stats`, `import`.
 - JSON output mode (`--json`) and custom database path (`--db`).
 
-[Unreleased]: https://github.com/biyan113/jmp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/biyan113/jmp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/biyan113/jmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/biyan113/jmp/releases/tag/v0.1.0
