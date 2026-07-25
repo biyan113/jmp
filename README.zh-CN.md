@@ -49,6 +49,10 @@ make install   # 安装到 /usr/local/bin/jmp
 # https://github.com/biyan113/jmp/releases
 ```
 
+> **Homebrew 6.0+ 提示**：首次执行 `brew install biyan113/tap/jmp` 时会要求
+> 信任此第三方 tap —— 按提示运行 `brew trust biyan113/tap` 即可。这是
+> Homebrew 对所有第三方 tap 的标准安全检查。
+
 需要 Go 1.21+（使用了内置的 `min`/`max`）。
 
 ## Shell 集成

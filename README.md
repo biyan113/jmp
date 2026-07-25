@@ -50,6 +50,10 @@ make install   # installs to /usr/local/bin/jmp
 # https://github.com/biyan113/jmp/releases
 ```
 
+> **Homebrew 6.0+**: the first `brew install biyan113/tap/jmp` will prompt you
+> to trust this third-party tap — run `brew trust biyan113/tap` when it does.
+> This is Homebrew's standard safety check for all third-party taps.
+
 Requires Go 1.21+ (uses the builtin `min`/`max`).
 
 ## Shell Integration
