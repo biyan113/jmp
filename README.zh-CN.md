@@ -32,6 +32,25 @@
   <img src="./docs/images/tui-main.png" alt="jmp TUI 管理界面" width="720">
 </p>
 
+## 快速开始
+
+新电脑上：
+
+```bash
+# 1. 先装好 Homebrew（macOS / Linux）—— https://brew.sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. 安装 jmp
+brew install biyan113/tap/jmp
+# Homebrew 6.0+：若提示信任该 tap，运行 `brew trust biyan113/tap`
+
+# 3. 在 shell 配置（~/.zshrc）里加一行，然后重启 shell
+eval "$(jmp init zsh)"        # bash 同理；fish: `jmp init fish | source`
+```
+
+之后多 `cd` 几个目录积累历史，`j foo` 就能跳到最匹配的目录。
+更多见下方 Shell 集成与用法章节。
+
 ## 安装
 
 ```bash

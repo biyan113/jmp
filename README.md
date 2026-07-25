@@ -33,6 +33,25 @@ macOS / Linux / WSL / Windows.
   <img src="./docs/images/tui-main.png" alt="jmp TUI manager" width="720">
 </p>
 
+## Quick Start
+
+On a new machine:
+
+```bash
+# 1. Install Homebrew first (macOS / Linux) — https://brew.sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Install jmp
+brew install biyan113/tap/jmp
+# Homebrew 6.0+: if prompted to trust the tap, run `brew trust biyan113/tap`
+
+# 3. Add this line to your shell config (~/.zshrc), then restart the shell
+eval "$(jmp init zsh)"        # bash: same; fish: `jmp init fish | source`
+```
+
+Now `cd` around to build history, then `j foo` jumps to the best match.
+See [Shell Integration](#shell-integration) and [Usage](#usage) for more.
+
 ## Installation
 
 ```bash
