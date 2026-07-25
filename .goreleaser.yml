@@ -57,9 +57,32 @@ release:
   github:
     owner: biyan113
     name: jmp
-  draft: true
+  draft: false
   name_template: "{{ .Tag }}"
   header: |
     ## jmp {{ .Tag }}
 
     See the [changelog](./CHANGELOG.md) for details.
+
+brews:
+  - name: jmp
+    homepage: https://github.com/biyan113/jmp
+    description: Smart directory jumper — Go rewrite and enhancement of autojump (frecency ranking, TUI, aliases, multi-device sync)
+    license: MIT
+    directory: Formula
+    repository:
+      owner: biyan113
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    caveats: |-
+      To enable the `j` command and directory auto-tracking, add the matching
+      line to your shell config and restart the shell:
+        bash:       eval "$(jmp init bash)"
+        zsh:        eval "$(jmp init zsh)"
+        fish:       jmp init fish | source
+        PowerShell: Invoke-Expression (& jmp init powershell | Out-String)
+    install: |-
+      bin.install "jmp"
+    test: |
+      assert_match "jmp", shell_output("#{bin}/jmp version")

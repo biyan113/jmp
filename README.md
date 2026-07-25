@@ -36,14 +36,17 @@ macOS / Linux / WSL / Windows.
 ## Installation
 
 ```bash
-# Option 1: go install (needs Go 1.21+)
+# Option 1: Homebrew (macOS / Linux)
+brew install biyan113/tap/jmp
+
+# Option 2: go install (needs Go 1.21+)
 go install github.com/bytenote/jmp@latest
 
-# Option 2: build from source
+# Option 3: build from source
 make build
 make install   # installs to /usr/local/bin/jmp
 
-# Option 3: download a prebuilt binary from Releases
+# Option 4: download a prebuilt binary from Releases
 # https://github.com/biyan113/jmp/releases
 ```
 

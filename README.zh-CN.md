@@ -35,14 +35,17 @@
 ## 安装
 
 ```bash
-# 方式 1: go install (需要 Go 1.21+)
+# 方式 1: Homebrew (macOS / Linux)
+brew install biyan113/tap/jmp
+
+# 方式 2: go install (需要 Go 1.21+)
 go install github.com/bytenote/jmp@latest
 
-# 方式 2: 从源码构建
+# 方式 3: 从源码构建
 make build
 make install   # 安装到 /usr/local/bin/jmp
 
-# 方式 3: 从 Releases 下载预编译二进制
+# 方式 4: 从 Releases 下载预编译二进制
 # https://github.com/biyan113/jmp/releases
 ```
 
