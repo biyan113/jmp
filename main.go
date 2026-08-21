@@ -112,8 +112,14 @@ func runJump(terms []string) error {
 		return err
 	}
 
+	if removedPaths, removedAliases := s.CleanMissing(); len(removedPaths)+len(removedAliases) > 0 {
+		if err := s.Save(); err != nil {
+			return err
+		}
+	}
+
 	if len(terms) == 1 && strings.HasPrefix(terms[0], "@") {
-		if path, ok := s.ResolveAlias(terms[0]); ok {
+		if path, ok := s.ResolveAlias(terms[0]); ok && store.IsExistingDir(path) {
 			if jsonOut {
 				printJSON(map[string]any{"path": path, "alias": terms[0]})
 				return nil
@@ -412,7 +418,7 @@ func buildDoctorCmd() *cobra.Command {
 			aliases := s.AllAliases()
 			brokenAliases := make(map[string]string)
 			for name, path := range aliases {
-				if _, err := os.Stat(path); os.IsNotExist(err) {
+				if !store.IsExistingDir(path) {
 					brokenAliases[name] = path
 				}
 			}
@@ -460,7 +466,7 @@ func buildCleanCmd() *cobra.Command {
 				aliases := s.AllAliases()
 				broken := make([]string, 0)
 				for name, path := range aliases {
-					if _, err := os.Stat(path); os.IsNotExist(err) {
+					if !store.IsExistingDir(path) {
 						broken = append(broken, name)
 					}
 				}
@@ -637,7 +643,11 @@ func buildCompleteCmd() *cobra.Command {
 				return err
 			}
 			seen := map[string]bool{}
-			for _, name := range sortedKeys(s.AllAliases()) {
+			aliases := s.AllAliases()
+			for _, name := range sortedKeys(aliases) {
+				if !store.IsExistingDir(aliases[name]) {
+					continue
+				}
 				candidate := "@" + name
 				if strings.HasPrefix(candidate, prefix) {
 					fmt.Println(candidate)
@@ -645,6 +655,9 @@ func buildCompleteCmd() *cobra.Command {
 				}
 			}
 			for _, e := range s.All() {
+				if !store.IsExistingDir(e.Path) {
+					continue
+				}
 				base := filepath.Base(e.Path)
 				if base != "" && strings.HasPrefix(strings.ToLower(base), prefix) && !seen[base] {
 					fmt.Println(base)

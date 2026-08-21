@@ -225,9 +225,11 @@ A 7-day half-life means a dir visited a week ago is worth half as much as one
 visited now. When the total weight across all entries exceeds 9000, every
 weight is scaled by 0.9 (autojump-style aging) to prevent unbounded growth.
 
-On top of frecency, `matcher.Rank` applies bonuses/penalties: last path
-component exact match (×3), prefix match (×1.5), starred (×1.25), alias match
-(×2), current-directory proximity (×1.2), and non-existent path (×0.1).
+On top of frecency, `matcher.Rank` applies bonuses: last path component exact
+match (×3), prefix match (×1.5), starred (×1.25), alias match (×2), and
+current-directory proximity (×1.2). Directories that no longer exist are
+skipped (and dropped from the database on jump) so a deleted or moved folder
+never wins over a live match.
 Substring matches always outrank fuzzy matches.
 
 ## License

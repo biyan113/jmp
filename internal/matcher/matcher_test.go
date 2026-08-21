@@ -165,3 +165,64 @@ func TestBestReturnsNilWhenEmpty(t *testing.T) {
 		t.Errorf("expected nil for empty store, got %v", e)
 	}
 }
+
+func TestRankSkipsMissingDirectories(t *testing.T) {
+	s := newTestStore(t, []struct {
+		name   string
+		weight float64
+		visits int64
+		age    time.Duration
+	}{
+		{"foo-new", 1, 1, 0},
+		{"foo-old", 100, 100, 0},
+	})
+	oldPath := s.Entries[1].Path
+	if err := os.RemoveAll(oldPath); err != nil {
+		t.Fatalf("remove old dir: %v", err)
+	}
+
+	r := Rank(s, []string{"foo"})
+	if len(r) != 1 {
+		t.Fatalf("expected only the live match, got %d", len(r))
+	}
+	if filepath.Base(r[0].Entry.Path) != "foo-new" {
+		t.Errorf("expected live dir 'foo-new', got %s", r[0].Entry.Path)
+	}
+}
+
+func TestRankMissingOnlyReturnsEmpty(t *testing.T) {
+	s := newTestStore(t, []struct {
+		name   string
+		weight float64
+		visits int64
+		age    time.Duration
+	}{{"gone", 50, 50, 0}})
+	if err := os.RemoveAll(s.Entries[0].Path); err != nil {
+		t.Fatalf("remove dir: %v", err)
+	}
+	if r := Rank(s, []string{"gone"}); len(r) != 0 {
+		t.Errorf("expected no results for a deleted directory, got %d", len(r))
+	}
+}
+
+func TestSuggestSkipsMissingDirectories(t *testing.T) {
+	s := newTestStore(t, []struct {
+		name   string
+		weight float64
+		visits int64
+		age    time.Duration
+	}{
+		{"alpha", 1, 1, 0},
+		{"alphabet", 1, 1, 0},
+	})
+	if err := os.RemoveAll(s.Entries[1].Path); err != nil {
+		t.Fatalf("remove dir: %v", err)
+	}
+	got := Suggest(s, []string{"alp"}, 5)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 live suggestion, got %d", len(got))
+	}
+	if filepath.Base(got[0].Entry.Path) != "alpha" {
+		t.Errorf("expected 'alpha', got %s", got[0].Entry.Path)
+	}
+}

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-21
+
+### Fixed
+- Jumping no longer lands on a deleted or moved directory. Missing paths are
+  skipped in ranking and pruned from the database on `jmp jump` / `j`, so the
+  next live match (for example the folder after a rename/move) is used instead
+  of erroring on the stale record.
+
 ## [0.2.0] - 2026-07-25
 
 ### Added
@@ -49,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maintenance commands: `doctor`, `clean`, `stats`, `import`.
 - JSON output mode (`--json`) and custom database path (`--db`).
 
-[Unreleased]: https://github.com/biyan113/jmp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/biyan113/jmp/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/biyan113/jmp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/biyan113/jmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/biyan113/jmp/releases/tag/v0.1.0

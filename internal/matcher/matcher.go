@@ -31,7 +31,9 @@ func Best(s *store.Store, terms []string) *store.Entry {
 //  3. Bonus: last path component exact match ×3
 //  4. Bonus: last path component prefix match ×1.5
 //  5. Bonus: starred entries ×1.25, alias match ×2, current repo proximity ×1.2
-//  6. Penalty: path doesn't exist on disk ×0.1
+//
+// Missing directories are omitted so a deleted/moved path never wins over a
+// live match (and never becomes the jump target).
 func Rank(s *store.Store, terms []string) []Result {
 	queryResults := s.Query(terms)
 	results := make([]Result, 0, len(queryResults))
@@ -43,6 +45,9 @@ func Rank(s *store.Store, terms []string) []Result {
 
 	for _, qr := range queryResults {
 		e := qr.Entry
+		if !store.IsExistingDir(e.Path) {
+			continue
+		}
 		score := e.Frecency()
 
 		// Fuzzy matches are deprioritised so substring results always win.
@@ -70,11 +75,6 @@ func Rank(s *store.Store, terms []string) []Result {
 			score *= 1.2
 		}
 
-		// Deprioritize paths that no longer exist.
-		if _, err := os.Stat(e.Path); os.IsNotExist(err) {
-			score *= 0.1
-		}
-
 		results = append(results, Result{Entry: e, Score: score})
 	}
 
@@ -90,6 +90,9 @@ func Suggest(s *store.Store, terms []string, limit int) []Result {
 	}
 	results := make([]Result, 0)
 	for _, e := range s.All() {
+		if !store.IsExistingDir(e.Path) {
+			continue
+		}
 		score := similarityScore(query, strings.ToLower(e.Path))
 		base := strings.ToLower(filepath.Base(e.Path))
 		components := strings.FieldsFunc(strings.ToLower(e.Path), func(r rune) bool {

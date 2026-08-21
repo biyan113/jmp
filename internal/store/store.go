@@ -199,6 +199,23 @@ func (s *Store) Entry(path string) (*Entry, bool) {
 	return nil, false
 }
 
+// IsExistingDir reports whether path is a directory that currently exists.
+func IsExistingDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// isStaleDir reports whether path should be dropped from jump data.
+// Missing paths and non-directories both count; permission / IO errors do not,
+// so a temporarily unreadable mount is not pruned.
+func isStaleDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return !info.IsDir()
+}
+
 // MissingEntries returns entries whose directories no longer exist.
 func (s *Store) MissingEntries() []*Entry {
 	s.mu.RLock()
@@ -206,7 +223,7 @@ func (s *Store) MissingEntries() []*Entry {
 
 	out := make([]*Entry, 0)
 	for _, e := range s.Entries {
-		if _, err := os.Stat(e.Path); os.IsNotExist(err) {
+		if isStaleDir(e.Path) {
 			cp := *e
 			out = append(out, &cp)
 		}
@@ -221,7 +238,7 @@ func (s *Store) CleanMissing() (removedEntries []string, removedAliases []string
 
 	filtered := s.Entries[:0]
 	for _, e := range s.Entries {
-		if _, err := os.Stat(e.Path); os.IsNotExist(err) {
+		if isStaleDir(e.Path) {
 			removedEntries = append(removedEntries, e.Path)
 			continue
 		}
@@ -231,7 +248,7 @@ func (s *Store) CleanMissing() (removedEntries []string, removedAliases []string
 
 	s.ensureAliases()
 	for name, path := range s.Aliases {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+		if isStaleDir(path) {
 			removedAliases = append(removedAliases, name)
 			delete(s.Aliases, name)
 		}

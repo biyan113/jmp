@@ -197,6 +197,73 @@ func TestConcurrentSaveUsesUniqueTempFiles(t *testing.T) {
 	}
 }
 
+func TestCleanMissingRemovesGoneDirsAndKeepsLive(t *testing.T) {
+	root := t.TempDir()
+	live := filepath.Join(root, "live")
+	gone := filepath.Join(root, "gone")
+	if err := os.MkdirAll(live, 0o755); err != nil {
+		t.Fatalf("mkdir live: %v", err)
+	}
+	if err := os.MkdirAll(gone, 0o755); err != nil {
+		t.Fatalf("mkdir gone: %v", err)
+	}
+
+	s := &Store{}
+	s.Add(live)
+	s.Add(gone)
+	s.SetAlias("live", live)
+	s.SetAlias("gone", gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatalf("remove gone: %v", err)
+	}
+
+	missing := s.MissingEntries()
+	if len(missing) != 1 || missing[0].Path != gone {
+		t.Fatalf("expected only gone path missing, got %#v", missing)
+	}
+
+	removedPaths, removedAliases := s.CleanMissing()
+	if len(removedPaths) != 1 || removedPaths[0] != gone {
+		t.Fatalf("unexpected removed paths: %#v", removedPaths)
+	}
+	if len(removedAliases) != 1 || removedAliases[0] != "gone" {
+		t.Fatalf("unexpected removed aliases: %#v", removedAliases)
+	}
+	if len(s.All()) != 1 || s.All()[0].Path != live {
+		t.Fatalf("expected only live entry to remain, got %#v", s.All())
+	}
+	if _, ok := s.ResolveAlias("gone"); ok {
+		t.Fatal("expected gone alias to be removed")
+	}
+	if path, ok := s.ResolveAlias("live"); !ok || path != live {
+		t.Fatalf("expected live alias to remain, got %s ok=%v", path, ok)
+	}
+}
+
+func TestCleanMissingTreatsFileAsStale(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	s := &Store{Entries: []*Entry{{Path: filePath, Weight: 1, LastVisit: time.Now()}}}
+	removed, _ := s.CleanMissing()
+	if len(removed) != 1 || removed[0] != filePath {
+		t.Fatalf("expected file path to be pruned, got %#v", removed)
+	}
+}
+
+func TestIsExistingDir(t *testing.T) {
+	dir := t.TempDir()
+	if !IsExistingDir(dir) {
+		t.Fatalf("expected temp dir to exist: %s", dir)
+	}
+	missing := filepath.Join(dir, "nope")
+	if IsExistingDir(missing) {
+		t.Fatalf("expected missing path to be false: %s", missing)
+	}
+}
+
 func TestAging(t *testing.T) {
 	s := &Store{}
 	for i := 0; i < 100; i++ {
