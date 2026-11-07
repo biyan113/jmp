@@ -148,7 +148,7 @@ jmp --tui     # same as above
 ```
 
 Key bindings: `↑/↓` move · `enter` jump · `/` search · `space` mark ·
-`s` star · `c` category · `e` edit weight · `d` delete · `a` add ·
+`s` star · `c` category · `e` edit weight · `+` boost score · `d` delete · `a` add ·
 `1/2/3/4` filter (all/recent/starred/categorized) · `i` detail ·
 `p` preview · `?` help · `q` quit.
 

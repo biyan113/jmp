@@ -320,6 +320,28 @@ func (s *Store) QueryEntries(terms []string) []*Entry {
 	return out
 }
 
+// BoostWeight adds delta to an existing entry's weight and marks it as visited
+// now, so the manual boost is not immediately eaten by recency decay.
+// The resulting weight is clamped at zero. It reports whether the path exists.
+func (s *Store) BoostWeight(path string, delta float64) (float64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path = normalizePath(path)
+	for _, e := range s.Entries {
+		if e.Path == path {
+			e.Weight += delta
+			if e.Weight < 0 {
+				e.Weight = 0
+			}
+			e.LastVisit = time.Now()
+			s.age()
+			return e.Weight, true
+		}
+	}
+	return 0, false
+}
+
 // SetWeight updates the weight of an existing entry.
 func (s *Store) SetWeight(path string, weight float64) bool {
 	s.mu.Lock()

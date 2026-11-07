@@ -52,6 +52,32 @@ func TestRemove(t *testing.T) {
 	}
 }
 
+func TestBoostWeight(t *testing.T) {
+	s := &Store{}
+	s.Add("/tmp/boost")
+	before := s.Entries[0].Weight
+
+	weight, ok := s.BoostWeight("/tmp/boost", 5)
+	if !ok {
+		t.Fatal("expected boost to find existing entry")
+	}
+	if weight != before+5 {
+		t.Errorf("expected weight %.1f, got %.1f", before+5, weight)
+	}
+
+	if _, ok := s.BoostWeight("/tmp/not-tracked", 5); ok {
+		t.Error("expected boost to reject unknown path")
+	}
+
+	weight, ok = s.BoostWeight("/tmp/boost", -1000)
+	if !ok {
+		t.Fatal("expected boost to find existing entry")
+	}
+	if weight != 0 {
+		t.Errorf("expected weight to clamp at 0, got %.1f", weight)
+	}
+}
+
 func TestFrecencyDecay(t *testing.T) {
 	s := &Store{}
 	s.Entries = []*Entry{

@@ -121,6 +121,7 @@ const (
 	modeEdit
 	modeAdd
 	modeCategory
+	modeBoost
 	modeConfirmDelete
 )
 
@@ -256,6 +257,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddKey(msg)
 	case modeCategory:
 		return m.handleCategoryKey(msg)
+	case modeBoost:
+		return m.handleBoostKey(msg)
 	case modeConfirmDelete:
 		return m.handleDeleteConfirmKey(msg)
 	}
@@ -349,6 +352,14 @@ func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input.SetValue("")
 			}
 			m.input.Placeholder = "category name..."
+			m.input.Focus()
+			m.clearStatus()
+		}
+	case "+":
+		if len(m.entries) > 0 {
+			m.mode = modeBoost
+			m.input.SetValue("5")
+			m.input.Placeholder = "score increase..."
 			m.input.Focus()
 			m.clearStatus()
 		}
@@ -511,6 +522,47 @@ func (m *Model) handleCategoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handleBoostKey manually raises the score of the cursor row, or of every
+// marked row, by adding the entered amount to its weight.
+func (m *Model) handleBoostKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeList
+		m.input.Blur()
+		m.clearStatus()
+		return m, nil
+	case "enter":
+		val := strings.TrimSpace(m.input.Value())
+		delta, err := strconv.ParseFloat(val, 64)
+		if err != nil || delta <= 0 {
+			m.setStatus("INVALID BOOST", true)
+			m.mode = modeList
+			m.input.Blur()
+			return m, nil
+		}
+		paths := m.targetPaths()
+		applied := 0
+		for _, path := range paths {
+			if _, ok := m.st.BoostWeight(path, delta); ok {
+				applied++
+			}
+		}
+		if err := m.st.Save(); err != nil {
+			m.setStatus("SAVE FAILED", true)
+		} else {
+			m.setStatus(fmt.Sprintf("BOOSTED +%.1f ×%d", delta, applied), false)
+		}
+		m.mode = modeList
+		m.input.Blur()
+		m.clearMarks()
+		m.reload()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
+}
+
 func (m *Model) handleDeleteConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
@@ -613,12 +665,13 @@ func (m *Model) View() string {
 	}
 
 	// Input box
-	if m.mode == modeSearch || m.mode == modeEdit || m.mode == modeAdd || m.mode == modeCategory {
+	if m.mode == modeSearch || m.mode == modeEdit || m.mode == modeAdd || m.mode == modeCategory || m.mode == modeBoost {
 		label := map[mode]string{
 			modeSearch:   "SEARCH",
 			modeEdit:     "WEIGHT",
 			modeAdd:      "ADD PATH",
 			modeCategory: "CATEGORY",
+			modeBoost:    "BOOST SCORE +",
 		}[m.mode]
 		sb.WriteString("\n  " + labelStyle.Render("▸ "+label) + "\n")
 		sb.WriteString("  " + inputBoxStyle.Render(m.input.View()))
@@ -768,7 +821,7 @@ func (m *Model) renderHelpPanel() string {
 	lines := []string{
 		labelStyle.Render("HELP"),
 		"1 all  2 recent  3 starred  4 categorized",
-		"space mark  s star  c category  d delete  a add  e weight",
+		"space mark  s star  c category  d delete  a add  e weight  + boost",
 		"/ search  i detail  p preview  r reload",
 		"enter jump  q quit",
 		"marked rows are used by star/category/delete",
@@ -819,7 +872,7 @@ func (m *Model) clearMarks() {
 
 func (m *Model) visibleRows() int {
 	reserved := 10
-	if m.mode == modeSearch || m.mode == modeEdit || m.mode == modeAdd || m.mode == modeCategory {
+	if m.mode == modeSearch || m.mode == modeEdit || m.mode == modeAdd || m.mode == modeCategory || m.mode == modeBoost {
 		reserved += 4
 	}
 	if m.showDetail {
