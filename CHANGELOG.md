@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 A hardening pass that holds jmp to the standard of a mature Unix CLI: no
 silent data loss, a sync that cannot damage the remote, and predictable exit
 codes and output.
@@ -131,7 +133,8 @@ codes and output.
 - Maintenance commands: `doctor`, `clean`, `stats`, `import`.
 - JSON output mode (`--json`) and custom database path (`--db`).
 
-[Unreleased]: https://github.com/biyan113/jmp/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/biyan113/jmp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/biyan113/jmp/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/biyan113/jmp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/biyan113/jmp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/biyan113/jmp/releases/tag/v0.1.0
