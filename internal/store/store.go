@@ -2,15 +2,29 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
+
+// ErrCorrupt is returned (wrapped) by Load when the database file exists but
+// cannot be parsed.
+var ErrCorrupt = errors.New("database is corrupt")
+
+// tombstoneTTL is how long deletion markers are kept so that removals can
+// propagate to other devices through sync.
+const tombstoneTTL = 180 * 24 * time.Hour
+
+// backupInterval is the minimum age of the .bak file before Save refreshes it.
+const backupInterval = 24 * time.Hour
 
 // Entry represents a single directory record.
 type Entry struct {
@@ -37,7 +51,14 @@ type Store struct {
 	mu      sync.RWMutex
 	Entries []*Entry          `json:"entries"`
 	Aliases map[string]string `json:"aliases,omitempty"`
-	path    string
+	// AliasTimes records when each alias was last set, so sync can resolve
+	// conflicting definitions (newest wins).
+	AliasTimes map[string]time.Time `json:"alias_times,omitempty"`
+	// Deleted / DeletedAliases are tombstones: explicit removals that sync
+	// must propagate instead of resurrecting the record from another device.
+	Deleted        map[string]time.Time `json:"deleted,omitempty"`
+	DeletedAliases map[string]time.Time `json:"deleted_aliases,omitempty"`
+	path           string
 }
 
 // DataDir returns the platform-appropriate data directory.
@@ -67,24 +88,119 @@ func DefaultPath() string {
 	return filepath.Join(DataDir(), "db.json")
 }
 
+// New returns an empty store bound to dbPath without reading it. Combine with
+// Update, which loads the current state under the lock.
+func New(dbPath string) *Store {
+	s := &Store{path: dbPath}
+	s.ensureMaps()
+	return s
+}
+
 // Load reads the store from disk; creates empty store if not found.
+// A file that exists but cannot be parsed yields an error wrapping ErrCorrupt.
 func Load(dbPath string) (*Store, error) {
 	s := &Store{path: dbPath}
-	data, err := os.ReadFile(dbPath)
-	if os.IsNotExist(err) {
-		return s, nil
-	}
-	if err != nil {
+	if err := s.read(); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, s); err != nil {
-		return nil, err
-	}
-	s.ensureAliases()
 	return s, nil
 }
 
-// Save writes the store to disk atomically.
+// read replaces the in-memory state with the file contents. A missing file
+// leaves the current state untouched.
+func (s *Store) read() error {
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		s.mu.Lock()
+		s.ensureMaps()
+		s.mu.Unlock()
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var fresh Store
+	if err := json.Unmarshal(data, &fresh); err != nil {
+		return fmt.Errorf("%w: %s: %v", ErrCorrupt, s.path, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Entries = fresh.Entries
+	s.Aliases = fresh.Aliases
+	s.AliasTimes = fresh.AliasTimes
+	s.Deleted = fresh.Deleted
+	s.DeletedAliases = fresh.DeletedAliases
+	s.ensureMaps()
+	return nil
+}
+
+// BackupPath returns the location of the periodic backup of dbPath.
+func BackupPath(dbPath string) string { return dbPath + ".bak" }
+
+// LoadOrRecover behaves like Load, but when the database is corrupt it moves
+// the damaged file aside and restores the most recent backup (or starts
+// empty). note is non-empty when a recovery happened and describes it.
+func LoadOrRecover(dbPath string) (s *Store, note string, err error) {
+	s, err = Load(dbPath)
+	if err == nil || !errors.Is(err, ErrCorrupt) {
+		return s, "", err
+	}
+	unlock, lerr := AcquireLock(dbPath+".lock", lockWait, lockStale)
+	if lerr != nil {
+		return nil, "", err
+	}
+	defer unlock()
+	// Another process may have repaired it while we waited for the lock.
+	if s, err2 := Load(dbPath); err2 == nil {
+		return s, "", nil
+	}
+	aside := dbPath + ".corrupt-" + time.Now().Format("20060102T150405")
+	if rerr := os.Rename(dbPath, aside); rerr != nil {
+		return nil, "", err
+	}
+	s = &Store{path: BackupPath(dbPath)}
+	source := "backup " + BackupPath(dbPath)
+	if rerr := s.read(); rerr != nil || !fileExists(BackupPath(dbPath)) {
+		s = &Store{}
+		s.ensureMaps()
+		source = "an empty database (no usable backup)"
+	}
+	s.path = dbPath
+	if serr := s.Save(); serr != nil {
+		return nil, "", serr
+	}
+	return s, fmt.Sprintf("database was corrupt; damaged file kept at %s, continuing from %s", aside, source), nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// Update applies fn as one atomic read-modify-write cycle: it takes the
+// cross-process lock, reloads the latest state from disk, runs fn and saves.
+// Use it for every mutation so concurrent shells do not overwrite each other.
+// If fn returns an error nothing is written.
+func (s *Store) Update(fn func() error) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+	unlock, err := AcquireLock(s.path+".lock", lockWait, lockStale)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := s.read(); err != nil {
+		return err
+	}
+	if err := fn(); err != nil {
+		return err
+	}
+	return s.Save()
+}
+
+// Save writes the store to disk atomically. It does not take the
+// cross-process lock; prefer Update for read-modify-write cycles.
 func (s *Store) Save() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -96,7 +212,27 @@ func (s *Store) Save() error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
+	s.refreshBackup()
+	return writeFileAtomic(s.path, data)
+}
+
+// refreshBackup copies the current on-disk database to <db>.bak when the
+// backup is missing or older than backupInterval. Best effort: failures are
+// ignored, and an unparsable file is never allowed to replace a good backup.
+func (s *Store) refreshBackup() {
+	bak := BackupPath(s.path)
+	if info, err := os.Stat(bak); err == nil && time.Since(info.ModTime()) < backupInterval {
+		return
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil || !json.Valid(data) {
+		return
+	}
+	_ = writeFileAtomic(bak, data)
+}
+
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
@@ -110,7 +246,11 @@ func (s *Store) Save() error {
 		os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(tmpName, s.path)
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // NormalizePath returns the canonical absolute form used by the store.
@@ -118,9 +258,20 @@ func NormalizePath(path string) string {
 	return normalizePath(path)
 }
 
-func (s *Store) ensureAliases() {
+func (s *Store) ensureAliases() { s.ensureMaps() }
+
+func (s *Store) ensureMaps() {
 	if s.Aliases == nil {
 		s.Aliases = make(map[string]string)
+	}
+	if s.AliasTimes == nil {
+		s.AliasTimes = make(map[string]time.Time)
+	}
+	if s.Deleted == nil {
+		s.Deleted = make(map[string]time.Time)
+	}
+	if s.DeletedAliases == nil {
+		s.DeletedAliases = make(map[string]time.Time)
 	}
 }
 
@@ -130,6 +281,7 @@ func (s *Store) Add(path string) {
 	defer s.mu.Unlock()
 
 	path = normalizePath(path)
+	delete(s.Deleted, path)
 	for _, e := range s.Entries {
 		if e.Path == path {
 			e.Weight += 1.0
@@ -148,12 +300,37 @@ func (s *Store) Add(path string) {
 	s.age()
 }
 
-// AddManual adds a path with a specified weight (from --add flag).
+// Ensure adds path with the given weight only if it is not recorded yet.
+// Unlike AddManual it never touches an existing entry. It reports whether a
+// new entry was created.
+func (s *Store) Ensure(path string, weight float64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path = normalizePath(path)
+	for _, e := range s.Entries {
+		if e.Path == path {
+			return false
+		}
+	}
+	delete(s.Deleted, path)
+	s.Entries = append(s.Entries, &Entry{
+		Path:      path,
+		Weight:    weight,
+		Visits:    1,
+		LastVisit: time.Now(),
+	})
+	return true
+}
+
+// AddManual sets the weight of path explicitly, creating the entry if needed.
+// An existing entry's weight is overwritten.
 func (s *Store) AddManual(path string, weight float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	path = normalizePath(path)
+	delete(s.Deleted, path)
 	for _, e := range s.Entries {
 		if e.Path == path {
 			e.Weight = weight
@@ -169,7 +346,8 @@ func (s *Store) AddManual(path string, weight float64) {
 	})
 }
 
-// Remove deletes an entry by path.
+// Remove deletes an entry by path and leaves a tombstone so the removal
+// propagates through sync instead of being undone by another device.
 func (s *Store) Remove(path string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -178,6 +356,8 @@ func (s *Store) Remove(path string) bool {
 	for i, e := range s.Entries {
 		if e.Path == path {
 			s.Entries = append(s.Entries[:i], s.Entries[i+1:]...)
+			s.ensureMaps()
+			s.Deleted[path] = time.Now()
 			return true
 		}
 	}
@@ -232,6 +412,8 @@ func (s *Store) MissingEntries() []*Entry {
 }
 
 // CleanMissing removes missing directory entries and aliases that point nowhere.
+// It deliberately leaves no tombstones: a path missing on this machine may be
+// perfectly valid on another device that shares the database through sync.
 func (s *Store) CleanMissing() (removedEntries []string, removedAliases []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -251,6 +433,7 @@ func (s *Store) CleanMissing() (removedEntries []string, removedAliases []string
 		if isStaleDir(path) {
 			removedAliases = append(removedAliases, name)
 			delete(s.Aliases, name)
+			delete(s.AliasTimes, name)
 		}
 	}
 	sort.Strings(removedEntries)
@@ -461,43 +644,172 @@ func normalizePath(path string) string {
 	return filepath.Clean(abs)
 }
 
+// MergeStats describes what a MergeFrom call changed in the receiving store.
+type MergeStats struct {
+	Added          []string `json:"added"`
+	Updated        []string `json:"updated"`
+	Removed        []string `json:"removed"`
+	AliasesAdded   []string `json:"aliases_added"`
+	AliasesUpdated []string `json:"aliases_updated"`
+	AliasesRemoved []string `json:"aliases_removed"`
+}
+
+// Changes returns the total number of changed records.
+func (m MergeStats) Changes() int {
+	return len(m.Added) + len(m.Updated) + len(m.Removed) +
+		len(m.AliasesAdded) + len(m.AliasesUpdated) + len(m.AliasesRemoved)
+}
+
 // MergeFrom merges entries from another store into this one.
-// Strategy: weight=max, visits=max, lastVisit=latest; new paths appended.
-func (s *Store) MergeFrom(other *Store) {
+//
+// Entries present on both sides: weight=max, visits=max, lastVisit=latest.
+// Deletions travel as tombstones: a tombstone removes an entry unless that
+// entry was visited after the deletion. Aliases defined differently on the two
+// sides resolve to the most recently set one.
+func (s *Store) MergeFrom(other *Store) MergeStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	other.mu.RLock()
+	defer other.mu.RUnlock()
+	s.ensureMaps()
+
+	stats := MergeStats{
+		Added: []string{}, Updated: []string{}, Removed: []string{},
+		AliasesAdded: []string{}, AliasesUpdated: []string{}, AliasesRemoved: []string{},
+	}
 
 	idx := make(map[string]*Entry, len(s.Entries))
 	for _, e := range s.Entries {
 		idx[e.Path] = e
 	}
 
-	for _, re := range other.Entries {
-		if le, ok := idx[re.Path]; ok {
-			if re.Weight > le.Weight {
-				le.Weight = re.Weight
+	// 1. Remote tombstones.
+	dropped := make(map[string]bool)
+	for path, t := range other.Deleted {
+		if le, ok := idx[path]; ok {
+			if le.LastVisit.After(t) {
+				continue // revisited locally after the remote deletion
 			}
-			if re.Visits > le.Visits {
-				le.Visits = re.Visits
-			}
-			if re.LastVisit.After(le.LastVisit) {
-				le.LastVisit = re.LastVisit
-			}
-			if re.Starred {
-				le.Starred = true
-			}
-			if le.Category == "" && re.Category != "" {
-				le.Category = re.Category
-			}
-		} else {
-			cp := *re
-			s.Entries = append(s.Entries, &cp)
+			dropped[path] = true
+			delete(idx, path)
+			stats.Removed = append(stats.Removed, path)
+		}
+		if t.After(s.Deleted[path]) {
+			s.Deleted[path] = t
 		}
 	}
-	s.ensureAliases()
+	if len(dropped) > 0 {
+		filtered := s.Entries[:0]
+		for _, e := range s.Entries {
+			if !dropped[e.Path] {
+				filtered = append(filtered, e)
+			}
+		}
+		s.Entries = filtered
+	}
+
+	// 2. Remote entries.
+	for _, re := range other.Entries {
+		if t, ok := s.Deleted[re.Path]; ok {
+			if !re.LastVisit.After(t) {
+				continue // deleted here after the remote last saw it
+			}
+			delete(s.Deleted, re.Path)
+		}
+		le, ok := idx[re.Path]
+		if !ok {
+			cp := *re
+			s.Entries = append(s.Entries, &cp)
+			idx[cp.Path] = &cp
+			stats.Added = append(stats.Added, cp.Path)
+			continue
+		}
+		changed := false
+		if re.Weight > le.Weight {
+			le.Weight = re.Weight
+			changed = true
+		}
+		if re.Visits > le.Visits {
+			le.Visits = re.Visits
+			changed = true
+		}
+		if re.LastVisit.After(le.LastVisit) {
+			le.LastVisit = re.LastVisit
+			changed = true
+		}
+		if re.Starred && !le.Starred {
+			le.Starred = true
+			changed = true
+		}
+		if le.Category == "" && re.Category != "" {
+			le.Category = re.Category
+			changed = true
+		}
+		if changed {
+			stats.Updated = append(stats.Updated, le.Path)
+		}
+	}
+
+	// 3. Remote alias tombstones.
+	for name, t := range other.DeletedAliases {
+		if _, ok := s.Aliases[name]; ok {
+			if s.AliasTimes[name].After(t) {
+				continue // re-created locally after the remote deletion
+			}
+			delete(s.Aliases, name)
+			delete(s.AliasTimes, name)
+			stats.AliasesRemoved = append(stats.AliasesRemoved, name)
+		}
+		if t.After(s.DeletedAliases[name]) {
+			s.DeletedAliases[name] = t
+		}
+	}
+
+	// 4. Remote aliases.
 	for name, path := range other.Aliases {
-		if _, exists := s.Aliases[name]; !exists {
+		rt := other.AliasTimes[name]
+		if t, ok := s.DeletedAliases[name]; ok {
+			if !rt.After(t) {
+				continue
+			}
+			delete(s.DeletedAliases, name)
+		}
+		lp, exists := s.Aliases[name]
+		switch {
+		case !exists:
 			s.Aliases[name] = path
+			stats.AliasesAdded = append(stats.AliasesAdded, name)
+		case lp != path && rt.After(s.AliasTimes[name]):
+			s.Aliases[name] = path
+			stats.AliasesUpdated = append(stats.AliasesUpdated, name)
+		default:
+			if lp != path {
+				continue // local definition is newer (or equally old): keep it
+			}
+		}
+		if rt.After(s.AliasTimes[name]) {
+			s.AliasTimes[name] = rt
+		}
+	}
+
+	s.pruneTombstones()
+	for _, l := range [][]string{stats.Added, stats.Updated, stats.Removed,
+		stats.AliasesAdded, stats.AliasesUpdated, stats.AliasesRemoved} {
+		sort.Strings(l)
+	}
+	return stats
+}
+
+func (s *Store) pruneTombstones() {
+	cutoff := time.Now().Add(-tombstoneTTL)
+	for k, t := range s.Deleted {
+		if t.Before(cutoff) {
+			delete(s.Deleted, k)
+		}
+	}
+	for k, t := range s.DeletedAliases {
+		if t.Before(cutoff) {
+			delete(s.DeletedAliases, k)
 		}
 	}
 }
@@ -532,26 +844,44 @@ func (s *Store) SetCategory(path, category string) bool {
 	return false
 }
 
+var aliasNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+// ValidAliasName reports whether name (with or without the @ prefix) is an
+// acceptable alias: letters, digits, '.', '_' and '-', starting with a letter
+// or digit.
+func ValidAliasName(name string) bool {
+	return aliasNameRe.MatchString(normalizeAlias(name))
+}
+
 // SetAlias assigns an @alias to a directory path.
-func (s *Store) SetAlias(name, path string) {
+func (s *Store) SetAlias(name, path string) error {
+	if !ValidAliasName(name) {
+		return fmt.Errorf("invalid alias name %q (use letters, digits, '.', '_' or '-')", name)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ensureAliases()
-	s.Aliases[normalizeAlias(name)] = normalizePath(path)
+	s.ensureMaps()
+	name = normalizeAlias(name)
+	s.Aliases[name] = normalizePath(path)
+	s.AliasTimes[name] = time.Now()
+	delete(s.DeletedAliases, name)
+	return nil
 }
 
-// RemoveAlias deletes an alias.
+// RemoveAlias deletes an alias, leaving a tombstone for sync.
 func (s *Store) RemoveAlias(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.ensureAliases()
+	s.ensureMaps()
 	name = normalizeAlias(name)
 	if _, ok := s.Aliases[name]; !ok {
 		return false
 	}
 	delete(s.Aliases, name)
+	delete(s.AliasTimes, name)
+	s.DeletedAliases[name] = time.Now()
 	return true
 }
 

@@ -5,6 +5,8 @@ project_name: jmp
 before:
   hooks:
     - go mod tidy
+    # Man pages are shipped in the archives and installed by the formula.
+    - go run . man man
 
 builds:
   - id: jmp
@@ -35,6 +37,7 @@ archives:
       - LICENSE
       - README.md
       - README.zh-CN.md
+      - man/*.1
 
 checksum:
   name_template: "checksums.txt"
@@ -84,5 +87,6 @@ brews:
         PowerShell: Invoke-Expression (& jmp init powershell | Out-String)
     install: |-
       bin.install "jmp"
+      man1.install Dir["man/*.1"]
     test: |
       assert_match "jmp", shell_output("#{bin}/jmp version")

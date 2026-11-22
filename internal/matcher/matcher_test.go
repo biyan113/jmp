@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytenote/jmp/internal/store"
+	"github.com/biyan113/jmp/internal/store"
 )
 
 // newTestStore builds a Store whose entries point at real temp dirs so that

@@ -59,7 +59,7 @@ See [Shell Integration](#shell-integration) and [Usage](#usage) for more.
 brew install biyan113/tap/jmp
 
 # Option 2: go install (needs Go 1.21+)
-go install github.com/bytenote/jmp@latest
+go install github.com/biyan113/jmp@latest
 
 # Option 3: build from source
 make build
@@ -94,8 +94,10 @@ jmp init fish | source
 Invoke-Expression (& jmp init powershell | Out-String)
 ```
 
-The integration auto-records every directory you enter and runs background sync
-(if configured).
+The integration records a visit each time you enter a directory (on every
+shell: one visit per directory change, not per command) and starts a detached
+background sync when one is due (if configured), so the prompt never waits on
+the network.
 
 ## Usage
 
@@ -109,6 +111,7 @@ j              # open the TUI manager
 j -            # previous directory
 j back         # jump back   (requires JMP_BACK, set by integration)
 j fwd          # jump forward (requires JMP_FWD)
+j -- back      # query the literal word "back" (bash / zsh / fish)
 j /etc         # absolute path
 j ~/Documents  # home-relative path
 j src          # relative subdir (when there's no DB match)
@@ -123,13 +126,18 @@ this way is recorded by the shell hook, so it becomes a future `j` target.
 ### Path management
 
 ```bash
-jmp add /path/to/dir          # add a path manually
-jmp add /path/to/dir -w 10    # with an initial weight
-jmp remove /path/to/dir       # remove a record (aliases: rm, del)
+jmp add /path/to/dir          # record a visit (weight +1); several paths allowed
+jmp add /path/to/dir -w 10    # set the weight to exactly 10 (overwrites)
+jmp remove /path/to/dir       # remove records (aliases: rm, del); several paths allowed
 jmp list                      # list all entries
 jmp list -n 20                # limit to 20
-jmp list -q keyword           # filter by keyword
+jmp list keyword              # filter by keyword (-q keyword also works)
+jmp list --paths              # bare paths, one per line (pipe-friendly)
+jmp list --no-header          # table without the header line
 ```
+
+`jmp add` only accepts existing directories; anything else is rejected with a
+message and a non-zero exit code.
 
 ### Aliases
 
@@ -139,6 +147,9 @@ jmp alias set proj /path      # create an alias
 jmp alias remove proj         # remove an alias (aliases: rm, del)
 j @proj                       # jump using the alias
 ```
+
+Alias names may contain letters, digits, `.`, `_` and `-`. Setting an alias
+never changes the weight of a directory that is already recorded.
 
 ### TUI manager
 
@@ -158,30 +169,74 @@ Key bindings: `↑/↓` move · `enter` jump · `/` search · `space` mark ·
 jmp stats                     # database statistics
 jmp doctor                    # health check (missing paths, broken aliases)
 jmp clean                     # remove missing paths and broken aliases
-jmp clean --dry-run           # preview what would be removed
+jmp clean --dry-run           # list exactly what would be removed (-n)
 ```
+
+`jmp clean` is the **only** command that prunes missing directories. Jumping
+never deletes anything: a directory that is absent right now (an unmounted
+external or network volume) is skipped as a target but keeps its record and
+weight. Mount your volumes before running `clean`, or check with `--dry-run`.
+
+**Safety net.** Every write is a locked read-modify-write, so several shells
+updating at once never lose each other's changes. Once a day the database is
+snapshotted to `db.json.bak`; if `db.json` is ever unreadable, jmp moves it to
+`db.json.corrupt-<timestamp>`, restores the snapshot and prints a warning.
 
 ### Import
 
 ```bash
 jmp import ~/path_history.txt   # import paths from a text/history file
+fc -ln 1 | jmp import -         # ...or from standard input
 ```
+
+Only existing directories are imported, each once, and entries already in the
+database are left untouched.
 
 ### Multi-device sync
 
-Sync the database over SSH/SCP. Merge strategy: **weight = max, visits = max,
-last-visit = latest**. Once configured, the shell hook syncs in the background
-(subject to the interval).
+Sync the database over SSH/SCP, or to a plain path such as a mounted share.
+A sync pulls the remote copy, merges it, and uploads the result.
 
 ```bash
-jmp sync set user@host:~/.local/share/jmp/db.json        # configure remote
-jmp sync set user@host:~/.local/share/jmp/db.json 600    # with interval (seconds)
+jmp sync set user@host:~/.local/share/jmp/db.json                  # configure remote
+jmp sync set user@host:~/.local/share/jmp/db.json --interval 600   # with interval (seconds)
 jmp sync                # sync now (pull + merge + push)
-jmp sync push           # push only
+jmp sync -n -v          # dry run: itemise what would change, change nothing
 jmp sync pull           # pull and merge only
-jmp sync auto           # sync only if interval elapsed (called by shell hook)
-jmp sync status         # show config and last sync time
+jmp sync push           # overwrite the remote with the local copy (no merge)
+jmp sync status         # config, last sync, last attempt, last error
+jmp sync unset          # stop syncing
+jmp sync auto           # called by the shell hook; returns immediately
 ```
+
+> The remote path is wherever you want the shared copy to live. On a macOS
+> remote the default database is `~/Library/Application Support/jmp/db.json`,
+> not `~/.local/share/jmp/db.json`.
+
+**Merge rules.** weight = max, visits = max, last visit = latest. Removals
+(`jmp remove`, `jmp alias remove`, deleting in the TUI) propagate to the other
+devices instead of being resurrected; an entry visited *after* it was removed
+elsewhere survives. An alias defined differently on two devices resolves to the
+most recently set one. `jmp clean` stays local on purpose: a path missing on
+this machine may be valid on another.
+
+**Safety.**
+
+- The remote is only written after it was successfully pulled and merged. The
+  single exception is a remote file that does not exist yet (first sync). Any
+  other pull failure — network, authentication, an unreadable remote file —
+  aborts with exit code 4 and leaves the remote untouched.
+- Uploads are atomic: the file is written under a temporary name and renamed,
+  so another device never reads a half-written database.
+- `scp`/`ssh` run with `BatchMode=yes`, a connect timeout and an overall
+  timeout: a background sync can never prompt for a password or hang.
+- After a failure the automatic sync waits a full interval before retrying,
+  and only one sync runs at a time.
+
+There is no remote lock. If two devices sync in the very same moment, one
+upload can replace the other; nothing is lost for good, because the merge is
+idempotent and the missing changes are uploaded again by the next sync of the
+device that made them.
 
 > Requires passwordless SSH/SCP access (e.g. key-based auth) to the remote host.
 
@@ -196,11 +251,41 @@ jmp config color <auto|always|never|ansi256|truecolor>   # set TUI color mode
 
 | Option | Description |
 |--------|-------------|
-| `--db <path>` | Use a custom database file path |
-| `--json`     | Output in JSON |
+| `--db <path>` | Use a custom database file (env: `JMP_DB`) |
+| `--json`      | Output JSON, including errors (`{"error": ..., "code": ...}`) |
+| `-v`, `--verbose` | Show more detail (e.g. itemised sync changes) |
+| `--quiet`     | Suppress status messages (requested data is still printed) |
+| `--version`   | Print the version (also `jmp version`) |
+
+`config.json`, `sync.json` and the sync state live next to the database: in
+the platform data directory by default, or beside a custom `--db` / `JMP_DB`
+file.
+
+### Environment
+
+| Variable | Description |
+|----------|-------------|
+| `JMP_DB`   | Database file. Also honoured by the shell integration, so `j` and the hook use it too. |
+| `JMP_LANG` | Message language, `en` or `zh`. Defaults to `LC_ALL` / `LC_MESSAGES` / `LANG`. |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Runtime error (I/O, invalid value, path is not a directory) |
+| 2 | Usage error (unknown command or flag, wrong arguments) |
+| 3 | No match / record not found |
+| 4 | Sync could not reach or update the remote |
+
+Errors go to stderr as `jmp: <message>`; the full usage text is only printed
+by `--help`.
+
+### Man pages
 
 ```bash
-jmp version    # print the build version
+make man                 # writes man/jmp.1, man/jmp-sync.1, ...
+man ./man/jmp-sync.1
 ```
 
 ## Development
@@ -209,6 +294,7 @@ jmp version    # print the build version
 make build      # build the local binary
 make test       # run tests
 make lint       # go vet
+make man        # generate man pages into man/
 make build-all  # cross-compile all platforms into dist/
 make clean      # remove build artifacts
 ```
@@ -227,9 +313,9 @@ weight is scaled by 0.9 (autojump-style aging) to prevent unbounded growth.
 
 On top of frecency, `matcher.Rank` applies bonuses: last path component exact
 match (×3), prefix match (×1.5), starred (×1.25), alias match (×2), and
-current-directory proximity (×1.2). Directories that no longer exist are
-skipped (and dropped from the database on jump) so a deleted or moved folder
-never wins over a live match.
+current-directory proximity (×1.2). Directories that do not exist right now are
+skipped as jump targets, so a deleted or moved folder never wins over a live
+match; their records stay until you run `jmp clean`.
 Substring matches always outrank fuzzy matches.
 
 ## License

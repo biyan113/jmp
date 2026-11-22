@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bytenote/jmp/internal/store"
+	"github.com/biyan113/jmp/internal/store"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

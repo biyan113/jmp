@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bytenote/jmp/internal/store"
+	"github.com/biyan113/jmp/internal/store"
 )
 
 const (
@@ -26,11 +26,27 @@ func defaultConfig() *AppConfig {
 	return &AppConfig{Color: colorAuto}
 }
 
-func configFile() string {
-	if dbPath != "" && dbPath != store.DefaultPath() {
-		return filepath.Join(filepath.Dir(dbPath), "config.json")
+// defaultDBPath honours JMP_DB so the shell integration (which never passes
+// --db) can be pointed at a custom database.
+func defaultDBPath() string {
+	if p := os.Getenv("JMP_DB"); p != "" {
+		return p
 	}
-	return filepath.Join(store.DataDir(), "config.json")
+	return store.DefaultPath()
+}
+
+// stateDir is where config.json, sync.json and sync state live: next to a
+// custom database, otherwise in the platform data directory. Every auxiliary
+// file follows the same rule.
+func stateDir() string {
+	if dbPath != "" && dbPath != store.DefaultPath() {
+		return filepath.Dir(dbPath)
+	}
+	return store.DataDir()
+}
+
+func configFile() string {
+	return filepath.Join(stateDir(), "config.json")
 }
 
 func loadConfig() (*AppConfig, error) {
@@ -43,7 +59,7 @@ func loadConfig() (*AppConfig, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(data, cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", configFile(), err)
 	}
 	if !validColorMode(cfg.Color) {
 		cfg.Color = colorAuto
@@ -55,14 +71,22 @@ func saveConfig(cfg *AppConfig) error {
 	if !validColorMode(cfg.Color) {
 		return fmt.Errorf("invalid color mode: %s", cfg.Color)
 	}
-	if err := os.MkdirAll(filepath.Dir(configFile()), 0o755); err != nil {
+	return writeJSONFile(configFile(), cfg)
+}
+
+func writeJSONFile(path string, v any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFile(), data, 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func validColorMode(mode string) bool {
