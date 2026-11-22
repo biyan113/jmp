@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bytenote/jmp/internal/store"
+	"github.com/biyan113/jmp/internal/store"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -331,10 +331,12 @@ func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		if len(m.entries) > 0 {
 			paths := m.targetPaths()
-			for _, path := range paths {
-				m.st.ToggleStar(path)
-			}
-			if err := m.st.Save(); err != nil {
+			if err := m.st.Update(func() error {
+				for _, path := range paths {
+					m.st.ToggleStar(path)
+				}
+				return nil
+			}); err != nil {
 				m.setStatus("SAVE FAILED", true)
 			} else {
 				m.setStatus(fmt.Sprintf("TOGGLED %d", len(paths)), false)
@@ -438,8 +440,10 @@ func (m *Model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			return m, nil
 		}
-		m.st.SetWeight(m.editPath, w)
-		if err := m.st.Save(); err != nil {
+		if err := m.st.Update(func() error {
+			m.st.SetWeight(m.editPath, w)
+			return nil
+		}); err != nil {
 			m.setStatus("SAVE FAILED", true)
 		} else {
 			m.setStatus(fmt.Sprintf("UPDATED %.1f", w), false)
@@ -468,14 +472,16 @@ func (m *Model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.Blur()
 			return m, nil
 		}
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			m.setStatus("NOT FOUND: "+path, true)
+		if !store.IsExistingDir(store.NormalizePath(path)) {
+			m.setStatus("NOT A DIRECTORY: "+path, true)
 			m.mode = modeList
 			m.input.Blur()
 			return m, nil
 		}
-		m.st.AddManual(path, 10.0)
-		if err := m.st.Save(); err != nil {
+		if err := m.st.Update(func() error {
+			m.st.AddManual(path, 10.0)
+			return nil
+		}); err != nil {
 			m.setStatus("SAVE FAILED", true)
 		} else {
 			m.setStatus("ADDED", false)
@@ -499,10 +505,13 @@ func (m *Model) handleCategoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		cat := strings.TrimSpace(m.input.Value())
-		for _, path := range m.targetPathsForEdit() {
-			m.st.SetCategory(path, cat)
-		}
-		if err := m.st.Save(); err != nil {
+		targets := m.targetPathsForEdit()
+		if err := m.st.Update(func() error {
+			for _, path := range targets {
+				m.st.SetCategory(path, cat)
+			}
+			return nil
+		}); err != nil {
 			m.setStatus("SAVE FAILED", true)
 		} else {
 			if cat == "" {
@@ -542,12 +551,14 @@ func (m *Model) handleBoostKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		paths := m.targetPaths()
 		applied := 0
-		for _, path := range paths {
-			if _, ok := m.st.BoostWeight(path, delta); ok {
-				applied++
+		if err := m.st.Update(func() error {
+			for _, path := range paths {
+				if _, ok := m.st.BoostWeight(path, delta); ok {
+					applied++
+				}
 			}
-		}
-		if err := m.st.Save(); err != nil {
+			return nil
+		}); err != nil {
 			m.setStatus("SAVE FAILED", true)
 		} else {
 			m.setStatus(fmt.Sprintf("BOOSTED +%.1f ×%d", delta, applied), false)
@@ -568,10 +579,12 @@ func (m *Model) handleDeleteConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y", "Y", "enter":
 		if len(m.entries) > 0 {
 			paths := m.targetPaths()
-			for _, path := range paths {
-				m.st.Remove(path)
-			}
-			if err := m.st.Save(); err != nil {
+			if err := m.st.Update(func() error {
+				for _, path := range paths {
+					m.st.Remove(path)
+				}
+				return nil
+			}); err != nil {
 				m.setStatus("SAVE FAILED", true)
 			} else {
 				m.setStatus(fmt.Sprintf("DELETED %d", len(paths)), false)

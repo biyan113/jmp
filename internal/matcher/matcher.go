@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bytenote/jmp/internal/store"
+	"github.com/biyan113/jmp/internal/store"
 )
 
 // Result wraps an entry with its computed score for display.

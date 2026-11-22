@@ -1,9 +1,9 @@
 BINARY   := jmp
-MODULE   := github.com/bytenote/jmp
+MODULE   := github.com/biyan113/jmp
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS  := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all build clean install test lint
+.PHONY: all build clean install test lint man
 
 all: build
 
@@ -31,9 +31,13 @@ build-windows-amd64:
 install: build
 	install -m 755 $(BINARY) /usr/local/bin/$(BINARY)
 
+# Generate man pages (jmp.1, jmp-sync.1, ...) into man/
+man:
+	go run . man man
+
 clean:
 	rm -f $(BINARY)
-	rm -rf dist/
+	rm -rf dist/ man/
 
 test:
 	go test ./...
