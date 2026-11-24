@@ -1,11 +1,25 @@
 name: Release
 
+# Two ways to cut a release:
+#   1. Push a tag:        git tag -a v1.2.3 -m v1.2.3 && git push origin v1.2.3
+#   2. Run this workflow manually on main with the version as input. It tags
+#      the current main commit and releases it.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. v1.2.3 (tags the current main)"
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -19,6 +33,40 @@ jobs:
         with:
           go-version: stable
           cache: true
+      - name: Test
+        run: go vet ./... && go test ./...
+      - name: Create tag (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases are cut from main; this run is on $GITHUB_REF"
+            exit 1
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must look like v1.2.3, got '$VERSION'"
+            exit 1
+          fi
+          if ! grep -q "^## \[${VERSION#v}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION#v}"
+            exit 1
+          fi
+          head=$(git rev-parse HEAD)
+          if existing=$(git rev-parse -q --verify "refs/tags/$VERSION^{commit}"); then
+            # Allows re-running a release that failed after tagging.
+            if [ "$existing" != "$head" ]; then
+              echo "::error::Tag $VERSION already exists at $existing, not at main ($head)"
+              exit 1
+            fi
+            echo "Tag $VERSION already points at main; continuing."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$VERSION" -m "$VERSION"
+            git push origin "$VERSION"
+          fi
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
