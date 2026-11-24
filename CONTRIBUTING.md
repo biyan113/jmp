@@ -79,6 +79,19 @@ refactor: simplify merge loop
 - Show `make test` output.
 - Add screenshots/terminal output when CLI or TUI behavior changes visibly.
 
+## Releasing
+
+1. Move the `[Unreleased]` entries in `CHANGELOG.md` under a new
+   `## [x.y.z] - YYYY-MM-DD` heading and merge that to `main`.
+2. Cut the release in either way:
+   - run the **Release** workflow manually on `main` (Actions → Release → Run
+     workflow) with the version, e.g. `v1.2.3`. It runs the tests, tags the
+     current `main` commit and publishes; or
+   - push the tag yourself: `git tag -a v1.2.3 -m v1.2.3 && git push origin v1.2.3`.
+
+GoReleaser then builds the archives, publishes the GitHub release and updates
+the Homebrew tap.
+
 ## Reporting bugs
 
 Open an issue with:

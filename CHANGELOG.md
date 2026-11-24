@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-22
+## [0.3.0] - 2026-11-24
 
 A hardening pass that holds jmp to the standard of a mature Unix CLI: no
 silent data loss, a sync that cannot damage the remote, and predictable exit
@@ -28,6 +28,8 @@ codes and output.
 - `jmp list [keyword...]`, `--paths` and `--no-header` for scripting.
 - `jmp add` / `jmp remove` accept several paths; `jmp import -` reads stdin.
 - Man pages: `make man`; shipped in release archives and the Homebrew formula.
+- The Release workflow can be run manually on `main` with a version input; it
+  tags the current commit and releases it.
 - Daily database snapshot (`db.json.bak`) and automatic recovery from a
   corrupt database, with a warning.
 - `j -- back` (bash / zsh / fish) queries a directory literally named like a
